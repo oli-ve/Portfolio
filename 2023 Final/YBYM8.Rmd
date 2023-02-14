@@ -1,0 +1,412 @@
+---
+title: "exam"
+output: html_document
+---
+
+```{r setup, include=FALSE, purl=F}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+INSTRUCTIONS & REMINDERS BEFORE YOU START THE EXAM 
+
+1) Put all of your answers inside the chunk given, this includes BOTH code and non-code answers.
+
+2) Non-code should be written as comments (preceded by #).
+
+3) Do not create any new chunks or delete any existing chunks.
+
+4) Use the EXACT names suggested to you when you name new objects
+
+5) Save your work regularly throughout
+
+6) Before submitting, save your script as your CANDIDATE NUMBER only, e.g. MHNT8.Rmd.
+
+RUN THE CHUNK BELOW TO LOAD ALL THE LIBRARIES NEEDED AND THE CSV FILES FOR PART 1 
+
+1) If there is a problem running this chunk, make sure you have your working directory set to where this Rmd file and the csv files are saved. 
+
+2) If any of the libraries below will not load, you need to install the packages in your console and then retry the library() command.
+
+
+```{r initial, purl=F}
+lutz <- read.csv('Lutzdata_exam.csv')
+library(tidyverse)
+library(broom)
+library(psych)
+library(lme4)
+library(lmerTest)
+library(MuMIn)
+library(broom.mixed)
+library(sjPlot)
+library(faux)
+library(mice)
+library(lavaan)
+library(semTools)
+library(semPlot)
+library(boot)
+```
+
+
+### Dataset description
+
+This study surveyed 349 adults using the Needs Threat Scale, a 20-item questionnaire about four specific types of 'needs' and whether a person believes they are threatened or satisfied. Responses range from 1 to 5 on a likert scale (1= most threatened, 5=most satisfied).
+
+Goal 1:
+One goal of the study was to verify if the theory-based factor structure would be confirmed by data.
+
+
+Additionally, the authors placed participants into 1 of 3 conditions, where they either experienced ostracism (1), rejection (2) or inclusion (3) in a fake online social media experience.
+
+The participants' perceived ostracism (PercOstracism) and rejection (PercRejection) was measured as a manipulation check.
+
+
+Goal 2:
+The researchers hypothesised that condition would predict the participants behaviour in the fake online social media experience, with those in condition 2 (rejection) producing more antisocial behaviours (All_dislikes) than the other two conditions. 
+
+
+Goal 3:
+A final hypothesis was that a participant's needs threat score would predict antisocial behaviour.
+
+### Variables:
+
+Case = id number
+
+Condition  = one of three conditions:1 = ostracism, 2 = rejection, 3 = inclusion
+
+SuspicionCheck = 0 = pass, 1 = fail a check to see if they have guessed the experimental manipulation (if so, reject from study)
+
+Gender: 1 = female, 2 = male, 3 = diverse/other
+
+Age: Age in years
+
+PercOstracism = extent to which they feel ostracised 1=not at all, 5 = a lot
+
+PercRejection =  extent to which they feel rejected 1=not at all, 5 = a lot
+
+All_dislikes = anti social behaviour numeric variable
+
+**Need threat questionnaire**
+
+NT01_01:NT01_20 each answered from 1 = need threat to 5 = need satisfaction
+
+Items 01 to 05 cover the extent to which participants’ *need for belonging* was threatened vs. satisfied (be)
+
+Items 06 to 10 cover the extent to which participants’ *self-esteem* was threatened vs. satisfied (se)
+
+Items 11 to 15 cover the extent to which participants’ *meaningful existence* was threatened vs. satisfied (me)
+
+Items 16 to 20 extent to which participants’ *control* was threatened vs. satisfied (co)
+
+
+## Exam questions
+
+### Part 1
+
+Q1. Wrangling: remove those who failed the suspicion check and save this object as `lutz1`
+
+```{r q01}
+lutz1 <- lutz %>% filter(SuspicionCheck == 0)
+```
+
+
+Q2. Descriptives: Using `lutz1`, write code to fill in the blanks (show your working). 
+
+There were ___ participants, of whom ___ % were male. Their mean age was __ (sd:___).
+```{r q02}
+#There were 211 participants, of whom 62.5 % were male. Their mean age was 21 (sd:7).
+
+summary <- lutz1 %>% group_by(Gender) %>% summarise(n_gender = length(Gender), p_gender = n_gender/211, m = mean(Age, na.rm=T), sd = sd(Age, na.rm=T))
+
+sum(summary$n_gender) #checking overall n
+```
+
+Q3. Needs threat measurement model
+
+We tried to create a measurement model where each item loads onto a latent variable for its subscale (be: need to belong, se: need for self esteem, me: need for meaningful existence and co: need for control).
+
+The model failed to converge. On inspection we decided to remove items NT01_08 and NT01_19 to enable to model to converge. Write code to run that model without these two variables and call it `mod1`, and call the model fit object `fit1`.
+```{r q03}
+mod1 <- '
+be =~ NT01_01+NT01_02+NT01_03+NT01_04+NT01_05
+se =~ NT01_06+NT01_07+NT01_09+NT01_10
+me =~ NT01_11+NT01_12+NT01_13+NT01_14+NT01_15
+co =~ NT01_16+NT01_17+NT01_18+NT01_20
+'
+
+fit1 <- lavaan::cfa(mod1, lutz1)
+summary(fit1, fit.measures=T)
+```
+
+
+Q4. How many parameters are being estimated in this model and what are they?
+
+```{r q04}
+parameterestimates(fit1)
+#there are 45 parameter estimates - 18 factor loadings (as 08 and 19 were both removed), 17 manifest variable variances, 4 latent variable variances, and 6 covariances between latent variables.
+
+```
+
+
+Q5. How would you evaluate the fit of this model - give at least 2 specific metrics to justify your choice
+
+```{r q05}
+#This is a poorly fitting model - CFI=0.88, less than the recommended level of 0.95, and RMSEA is 0.09, greater than the recommended 0.02-0.08 interval.
+```
+
+
+
+Q6. Researchers wanted to compare the 4-factor model with a unidimensional model, where all items load onto a single factor `nt`. Write code to create this model (exclude NT01_08 and NT01_19 from this one too). Call the model description text `mod2` and the fit object `fit2`
+```{r q06}
+mod2 <- '
+nt =~ NT01_01+NT01_02+NT01_03+NT01_04+NT01_05+NT01_06+NT01_07+NT01_09+NT01_10+NT01_11+NT01_12+NT01_13+NT01_14+NT01_15+NT01_16+NT01_17+NT01_18+NT01_20
+'
+
+fit2 <- lavaan::cfa(mod2, lutz1)
+summary(fit2, fit.measures=T)
+```
+
+
+Q7. Compare this model with the four factor one - which is better and how do you know?
+```{r q07}
+summary(compareFit(fit1, fit2)) #comparing fit measures
+anova(fit1,fit2) #comparing chisq inferentially
+
+#as RMSEA, CFI, and TLI are all closer to recommended levels in fit1, the model is better than the unidimensional model. Moreover, significant differneces between model chi-square statistics indicate that fit1 is significantly better than fit2. 
+```
+
+Q8. Demonstrate how to use modification indices to improve the fit of `mod1` by estimating one more parameter, and call this model description `mod3` and fit object `fit3`. Describe the path you have added in words, as a comment in the code.
+
+```{r q08}
+modificationindices(fit1, sort=T)
+
+mod3 <- '
+be =~ NT01_01+NT01_02+NT01_03+NT01_04+NT01_05
+se =~ NT01_06+NT01_07+NT01_09+NT01_10
+me =~ NT01_11+NT01_12+NT01_13+NT01_14+NT01_15
+co =~ NT01_16+NT01_17+NT01_18+NT01_20
+
+NT01_01 ~~ NT01_04
+'
+
+fit3 <- lavaan::cfa(mod3, lutz1)
+summary(fit3, fit.measures=T)
+
+anova(fit2,fit3) #checking improvement
+
+#in order to improve model fit a covariance between NT01_01 and NT01_04 has been added. Moreover a covariance between these two items is logical, as both are items on the need for belonging (be) sub-scale. The revised model with this additional covariance is a significant improvement over that without. 
+
+
+```
+
+Q9. Draw a path model of the output of `fit3`
+
+```{r q09}
+semPaths(object = fit3,
+         what="est",
+         sizeMan = 5,
+         edge.label.cex = 0.8,
+         edge.color="purple",
+         nCharNodes = 2,
+         rotation=3)
+```
+
+
+Q10. Imagine that we filtered the dataset to only include men and women, and then grouped the CFA by Gender to see if measurement invariance held for men and women. If the configural invariance model showed a very poor fit, what would it mean (describe what configural invariance implies)?
+
+```{r q10}
+#Configural invariance implies that the specified factor structure holds across different levels of the grouping factor - in this case gender. If the configural invariance model (i.e., cfa containing group="gender") showed a poor fit, then this would indicate that the factor structure is configurally non-invariant - it differs significantly across groups. We would first stop checking invariance, before reappraising the factor structure, as configural invariance is particularly severe. 
+```
+
+Q11. The experimental manipulation was to assign each person to one of three conditions. What type of variable is Condition?
+
+```{r q11}
+#Factor with 3 levels
+```
+
+
+Q12. Make a plot to see if the manipulation has worked, i.e. do participants vary in their perceived ostracism by condition? Answer this question by commenting under the code.
+
+```{r q12}
+lutz1 <- lutz1 %>% mutate(Condition = as.factor(Condition)) #transforming condition to a factor
+
+ggplot(lutz1, aes(x = Condition, y = PercOstracism))+
+  geom_boxplot()
+
+#yes, participants vary in perceived ostracism by condition: those in the ostracism condition (1) felt the most ostracised, followed by those in the rejection condition (2) and lastly those in the inclusion condition (3)
+```
+
+Q13. Which kind of test would be used to check these mean differences in perceived ostracism are statistically significant? Do not run the test.
+
+```{r q13}
+#A one-factor ANOVA with 3 levels.
+```
+
+
+Q14. Now tabulate data on antisocial behaviour (All_dislikes) split by condition. Show the mean and the sd of this variable, rounded to 2 decimal places.
+
+```{r q14}
+antisocialsum <- lutz1 %>% group_by(Condition) %>% summarise(m_anti = mean(All_dislikes) %>% round(2), sd_anti = sd(All_dislikes) %>% round(2))
+print(antisocialsum)
+```
+
+Q15. How do you interpret these data? Describe the pattern of antisocial behaviour in different conditions.
+```{r q15}
+#The most antisocial behaviour was observed in the rejection condition (m=2.46), slightly greater than those in the ostracism condition (m=2.43). Those in the inclusion condiiton, unsurprisingly, displayed the lowest degree of antisocial behaviour (m=1.86)
+```
+
+Q16. Next we want to see if people's need threat score is associated with their antisocial online behaviour.  Edit the code from Q8 to make a structural equation model that adds 4 regression paths - one from each latent factor to predict the All_dislikes variable.
+
+```{r q16}
+mod4 <- '
+be =~ NT01_01+NT01_02+NT01_03+NT01_04+NT01_05
+se =~ NT01_06+NT01_07+NT01_09+NT01_10
+me =~ NT01_11+NT01_12+NT01_13+NT01_14+NT01_15
+co =~ NT01_16+NT01_17+NT01_18+NT01_20
+
+NT01_01 ~~ NT01_04
+
+All_dislikes ~ be+se+me+co
+'
+
+fit4 <- lavaan::sem(mod4, lutz1)
+summary(fit4, fit.measures=T)
+```
+
+Q17. What do you conclude from this model - does need threat status impact anti social behaviour in the experiment?
+
+```{r q17}
+#Given that none of the need threat status subscales regress significantly onto antisocial behaviour, we cannot conclude that there is a significant relationship between them - need threat status seemingly does not impact antisocial behaviour in this experiment. 
+```
+
+Q18. If we determined that the group of people who were excluded because they failed the suspicion check (those who admitted to suspecting what the experiment was about) had a generally lower needs threat score, compared with those who were retained, what kind of missingness would this data represent?
+
+```{r q18}
+#This data would represent Missing at Random data, as there is seemingly an association between the missingness and their self-reported scores on the needs threat scale. In other words, the missingness is associated with a participant-level variable, rather than an item-level one. 
+```
+
+
+### Part 2
+
+Run this chunk to generate the dataframe `study2`. This is simulated data to mimic a previous experiment where participants' need threat questionnaire scores were measured at 5 time points across their life span (when time = 1 they are age 15, at each subsequent time point they are 5 years older). The dataframe contains `id` (participant id), `time` (time point 1:5) and `score` (mean score on needs threat questionnaire like the one used in Lutz et al.).
+
+```{r initial2, purl=F}
+set.seed(123456)
+b0 <- 3.5  #intercept when time = 0
+b1 <- -0.2 #change in y with each unit of time
+tau_0 <- 1 #sd of random intercept 
+sigma <- 1 #sd of residual error
+n <- 45  
+times <- 5 
+
+random <- tibble(id=1:n,
+                 tau_0s = rnorm(n, 0, tau_0)) #random effects table
+
+study2 <- crossing(id=1:n, 
+                   time= 1:times) %>%
+  mutate(b0 = b0,
+         b1 = b1) %>%
+  inner_join(random, by='id') %>%
+  mutate(score=b0+tau_0s + b1*time + rnorm(n*times, 0, sigma))
+
+```
+
+Q19. How many people are in this experiment? Use the simulation code to get your answer.
+```{r q19}
+#45 participants - represented by value "n"
+
+#checking
+length(study2$id)/times
+```
+
+Q20. Does the data we simulate assume that individuals' needs threat score changes at different rates over time?
+```{r q20}
+#No, but it does assume that it changes over time.
+```
+
+IMPORTANT: To ensure we are all using the same simulated data, please run this chunk to load in a copy of this dataframe and save it as `study2`.
+
+```{r initial3, purl=F}
+study2 <- read.csv('study2_data.csv')
+```
+
+Q21. Plot the data, adding a line to show the average change in needs threat score over time, and removing the grey ribbon around it. NB we can treat time as a continuous variable here. Add a title to the plot.
+```{r q21}
+ggplot(study2, aes(x = time, y = score))+
+  geom_point()+
+  geom_smooth(method="lm", se=F)+ #change over time, removing ribbon
+  labs(title="Relationship between needs threat score and time")
+```
+
+Q22. Summarise the effect of time shown in the graph:
+```{r q22}
+#Needs threat score seems to decrease over time.
+```
+
+
+Q23. See if you can identify a way in which the simulation has not represented the data perfectly in this model
+```{r q23}
+#The simulation could have better represented the fact that the effect of time on scores may change over time. 
+```
+
+Q24. Centre time to the beginning of the study (call this variable time_c)
+```{r q24}
+study2 <- study2 %>% mutate(time_c = time-1)
+```
+
+
+Q25. Use `study2` to make a multilevel model with time_c as the predictor and score as the outcome variable. Include a random intercept and slope for participants. Call this object `mod`
+```{r q25}
+#score continuous, random effects present - lmer necessary
+mod <- lmer(score ~ time_c + (1 + time_c | id), data=study2)
+summary(mod)
+```
+
+Q26. Is time a significant predictor of score on needs threat questionnaire in this sample? Report the coefficient and the p-value and your interpretation of them - write your answer as a comment below.     
+```{r q26}
+#In this sample, time is a significant negative predictor of needs threat score (est=-0.21, p<0.001), indicating a .21 decrease in score with each 1-point increase in time. In simple terms, as time progressed, participants' needs threat scores became lower. 
+```
+
+
+Q27. How much would this model predict the average person in this study to score on the needs threat questionnaire at age 25? Show your working.
+```{r q27}
+#time1 = age 15. time3 = 25 (centered: time2)
+
+3.45283 + (-0.20878*3) #2.82649
+```
+
+Q28. How much variance does time explain in this model?
+```{r q28}
+r.squaredGLMM(mod) #checking marginal r^2 as time is the only fixed effect
+#4.6% of variance.
+```
+
+Q29. State what edits (to which variable, in which direction) you could make to the simulation code if you were trying to lower the conditional r2 value generated by the data. NB you do not have to produce revised code, just say in words what you would do.
+```{r q29}
+#Increase residual variance (sigma), as this will decrease variance explained by the variables the model actually accounts for (i.e, fixed and random effects)
+```
+
+Q30. Modify the simulation code so that the change in scores decelerates as the study progresses, and write code to plot the data and check the revised model. Name the dataframe `study3` and the model `mod_rev`. 
+
+```{r q30}
+set.seed(123456)
+
+
+study3 <- crossing(id=1:n, 
+                   time= 1:times) %>%
+  mutate(b0 = b0,
+         b1 = b1) %>%
+  inner_join(random, by='id') %>%
+  mutate(score=b0+tau_0s + b1*time^2 + rnorm(n*times, 0, sigma))
+
+#plotting data
+ggplot(study3, aes(x = time, y = score))+
+  geom_point()+
+  geom_smooth(method="lm", se=F)
+
+#revised model
+
+mod_rev <- lmer(score ~ I(time^2) + (1 + time | id), data=study3) #adding quadratic time
+summary(mod_rev)
+```
+
+
